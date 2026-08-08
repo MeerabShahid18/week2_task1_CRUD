@@ -1,202 +1,158 @@
-# Task CRUD API
+# Task CRUD API — Docker + PostgreSQL
 
-A small REST API for managing a to-do list — create, read, update, and delete tasks (the four **CRUD** operations). Built with **Node.js + Express** using a strict **layered architecture**. Data lives **in memory** (a plain array), so it resets every time the server restarts. This is intentional: the project is structured so the storage layer can later be swapped for **SQLite** without touching any other layer.
+A layered REST CRUD API built with Node.js and Express. This version extends A2 by replacing the SQLite storage layer with PostgreSQL running in Docker. The application and database start together with one command:
 
-Interactive documentation is served with **Swagger UI** at `/docs`.
-
----
+```bash
+docker compose up --build
+```
 
 ## Architecture
 
-This project follows a strict layered architecture. A request flows **down** through the layers and the response flows back **up**:
-
-```
-Client Request
-      |
-      v
-Routes Layer        -> defines endpoints only (no logic)
-      |
-      v
-Controller Layer    -> handles HTTP req/res, validates presence of input
-      |
-      v
-Service Layer       -> business logic + validation rules (no req/res)
-      |
-      v
-Repository Layer    -> all data access (today: in-memory array; later: SQLite)
-      |
-      v
-In-memory storage
+```text
+Client
+  |
+  v
+Routes
+  |
+  v
+Controllers
+  |
+  v
+Services
+  |
+  v
+PostgreSQL Repository
+  |
+  v
+PostgreSQL (Docker + persistent volume)
 ```
 
-**Why this matters:** each layer has a single responsibility and only talks to the layer directly below it. When we add a database next week, only `taskRepository.js` changes — the routes, controller, and service stay exactly the same.
+The important architecture proof is that **the routes and service layer were not changed for the storage migration**. In this project, A2 used SQLite as the real database repository; A3 replaces that SQLite repository with PostgreSQL. Only the repository implementation and database configuration changed.
 
-### Layer responsibilities
+## Stack
 
-| Layer | File | Responsibility |
-| --- | --- | --- |
-| Routes | `src/routes/taskRoutes.js` | Map HTTP method + path to a controller handler. No logic. |
-| Controllers | `src/controllers/taskController.js` | Read the request, call the service, shape the HTTP response. |
-| Services | `src/services/taskService.js` | Business logic and validation rules. Never touches req/res. |
-| Repositories | `src/repositories/taskRepository.js` | All data operations. The only layer that touches storage. |
-| Models | `src/models/taskModel.js` | Defines the Task structure. |
-| Middleware | `src/middleware/errorMiddleware.js` | Centralized error handling + 404 fallback. |
+- Node.js
+- Express
+- PostgreSQL
+- Docker / Docker Compose
+- Swagger UI
+- Layered architecture
 
----
+## Environment variables
 
-## Folder structure
+Create `.env` locally from `.env.example` if needed. The repository expects:
 
-```
-.
-├── src/
-│   ├── controllers/
-│   │   └── taskController.js     # HTTP request/response handling
-│   ├── services/
-│   │   └── taskService.js        # Business logic + validation
-│   ├── repositories/
-│   │   └── taskRepository.js     # In-memory data storage (swap for DB later)
-│   ├── routes/
-│   │   └── taskRoutes.js         # Endpoint definitions
-│   ├── models/
-│   │   └── taskModel.js          # Task structure/factory
-│   ├── middleware/
-│   │   └── errorMiddleware.js    # Centralized error + 404 handling
-│   ├── docs/
-│   │   └── openapi.js            # OpenAPI 3 spec for Swagger UI
-│   ├── utils/
-│   │   └── ApiError.js           # Error class carrying an HTTP status code
-│   ├── app.js                    # Express app: middleware + routes wiring
-│   └── server.js                 # Entry point: starts the server
-├── .env                          # PORT config
-├── .gitignore
-├── package.json
-└── README.md
+```env
+PORT=3000
+DATABASE_URL=postgresql://postgres:postgres@db:5432/tasksdb
 ```
 
----
+`.env` is gitignored. `.env.example` is committed so the required configuration is documented without committing credentials.
 
-## The Task object
+## Run the whole stack
 
-```json
-{
-  "id": 1,
-  "title": "Learn Node.js",
-  "done": false
-}
+```bash
+docker compose up --build
 ```
 
-The repository is seeded with three default tasks on startup:
+The API will be available at:
 
-```json
-[
-  { "id": 1, "title": "Learn Node.js",  "done": false },
-  { "id": 2, "title": "Learn Express",  "done": false },
-  { "id": 3, "title": "Build CRUD API", "done": true  }
-]
+- http://localhost:3000/
+- http://localhost:3000/health
+- http://localhost:3000/api/tasks
+- http://localhost:3000/docs
+
+Run in the background with:
+
+```bash
+docker compose up --build -d
 ```
 
----
+## Database
+
+PostgreSQL runs in the `db` container. Its data directory is backed by the named Docker volume `postgres_data`, so deleting/recreating the containers does not delete the database data.
+
+The table is created by `db/init.sql` when the PostgreSQL volume is initialized:
+
+```sql
+CREATE TABLE IF NOT EXISTS tasks (
+  id SERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  done BOOLEAN NOT NULL DEFAULT FALSE
+);
+```
+
+The init script runs automatically only when PostgreSQL initializes a new data directory.
 
 ## API endpoints
 
-Base path for task resources: `/api/tasks`
-
-| Method | Path | Description | Success | Errors |
-| --- | --- | --- | --- | --- |
-| `GET` | `/` | API metadata | `200` | — |
-| `GET` | `/health` | Health check (`{ "status": "ok" }`) | `200` | — |
-| `GET` | `/api/tasks` | List all tasks | `200` | — |
-| `GET` | `/api/tasks/:id` | Get a single task | `200` | `404` not found |
-| `POST` | `/api/tasks` | Create a task | `201` | `400` missing/empty title |
-| `PUT` | `/api/tasks/:id` | Update a task (`title` and/or `done`) | `200` | `400` invalid body · `404` not found |
-| `DELETE` | `/api/tasks/:id` | Delete a task | `204` | `404` not found |
-| `GET` | `/docs` | Swagger UI interactive docs | `200` | — |
-
-All errors return JSON in the form `{ "error": "message" }`.
-
-### Status codes used
-
-| Code | Meaning | When |
+| Method | Path | Description |
 | --- | --- | --- |
-| `200` | OK | Successful read / update |
-| `201` | Created | Task created via `POST` |
-| `204` | No Content | Task deleted (empty body) |
-| `400` | Bad Request | Missing/empty title, or invalid update body |
-| `404` | Not Found | Unknown task id (or unknown route) |
-| `500` | Server Error | Unexpected error |
+| GET | `/` | API metadata |
+| GET | `/health` | Health check |
+| GET | `/api/tasks` | List tasks |
+| GET | `/api/tasks/:id` | Get one task |
+| POST | `/api/tasks` | Create a task |
+| PUT | `/api/tasks/:id` | Update a task |
+| DELETE | `/api/tasks/:id` | Delete a task |
+| GET | `/docs` | Swagger UI |
 
----
+## Persistence proof
 
-## Install
+To verify that data survives both an application restart and a container restart:
 
-Requires [Node.js](https://nodejs.org) 18+.
+1. Start the stack:
 
 ```bash
-npm install
+docker compose up --build -d
 ```
 
-## Run
-
-Start the server (one documented command):
+2. Create a task:
 
 ```bash
-npm start
-```
-
-The server starts on `http://localhost:3000` (configurable via `PORT` in `.env`).
-
-For auto-reload during development:
-
-```bash
-npm run dev
-```
-
-Then open:
-
-- API root: <http://localhost:3000/>
-- Swagger UI: <http://localhost:3000/docs>
-
----
-
-## Example: full CRUD cycle with `curl`
-
-```bash
-# List all tasks
-curl -i http://localhost:3000/api/tasks
-
-# Get one task
-curl -i http://localhost:3000/api/tasks/1
-
-# Create a task (201)
-curl -i -X POST http://localhost:3000/api/tasks \
+curl -X POST http://localhost:3000/api/tasks \
   -H "Content-Type: application/json" \
-  -d '{"title":"Buy milk"}'
-
-# Update a task (200)
-curl -i -X PUT http://localhost:3000/api/tasks/1 \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Learn Express","done":true}'
-
-# Delete a task (204)
-curl -i -X DELETE http://localhost:3000/api/tasks/2
+  -d '{"title":"Persistence test"}'
 ```
 
-### Sample `curl -i` output
+3. Confirm it exists:
 
-```
-$ curl -i -X POST http://localhost:3000/api/tasks \
-    -H "Content-Type: application/json" \
-    -d '{"title":"Buy milk"}'
-
-HTTP/1.1 201 Created
-Content-Type: application/json; charset=utf-8
-Content-Length: 40
-
-{"id":4,"title":"Buy milk","done":false}
+```bash
+curl http://localhost:3000/api/tasks
 ```
 
----
+4. Restart the app and database containers:
 
-## Note on in-memory storage (the "mortality experiment")
+```bash
+docker compose restart
+```
 
-Data is stored in a plain array in `taskRepository.js`. Create a few tasks, restart the server, then `GET /api/tasks` — your new tasks are gone and only the three seeded tasks remain. That is because in-memory data lives only in the running process and disappears when it stops. Fixing this is exactly why databases exist, and is the goal of the next iteration (SQLite), which will only require rewriting the repository layer.
+5. Query the tasks again:
+
+```bash
+curl http://localhost:3000/api/tasks
+```
+
+The `Persistence test` row remains because PostgreSQL data is stored in the `postgres_data` Docker volume.
+
+For a stronger container-recreation test, use:
+
+```bash
+docker compose down
+
+docker compose up --build -d
+```
+
+Do **not** run `docker compose down -v`, because `-v` removes the named volume and therefore intentionally deletes the persisted database data.
+
+## Repository swap
+
+The service continues to call the same repository methods:
+
+- `findAll()`
+- `findById(id)`
+- `create(data)`
+- `update(id, changes)`
+- `remove(id)`
+
+The PostgreSQL implementation keeps those method signatures, so **the service and route files remain unchanged from A2**. The storage changed from SQLite to PostgreSQL; the higher layers did not. This is the practical benefit of the repository/layered architecture.
