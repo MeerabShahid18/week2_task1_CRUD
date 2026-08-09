@@ -645,3 +645,42 @@ The authenticated API and PostgreSQL database are now ready to use.
 
 ````
 
+## AI vs Me
+
+For the AI rematch, I compared the expected authentication architecture with an AI-generated implementation.
+
+### Token extraction
+
+The authentication flow needs to correctly parse the `Authorization` header in the form:
+
+Authorization: Bearer <token>
+
+The important part is removing the `Bearer ` prefix before passing the actual JWT to Supabase. My implementation explicitly handles the header format and rejects missing, malformed, or empty tokens before attempting verification.
+
+### Token security
+
+A protected API should never treat the presence of a token as proof that it is valid. The token must be verified through Supabase using:
+
+supabase.auth.getUser(token)
+
+Invalid, expired, tampered, or otherwise rejected tokens must result in HTTP 401 rather than allowing the request to reach the protected route.
+
+I also kept the authentication logic in reusable middleware instead of duplicating token verification inside every protected endpoint.
+
+### What I specified vs. what AI might assume
+
+The detailed requirements were important because authentication has several small but significant edge cases. In particular, the implementation needs to distinguish:
+
+- `400` for missing signup/login input
+- `401` for invalid login credentials
+- `401` for missing or malformed access tokens
+- `401` for invalid or expired tokens
+- `201` for successful signup
+- `200` for successful login and protected resource access
+- `204` for successful logout
+
+The prompt also needs to explicitly state that Supabase's `getUser(token)` must be used for verification and that the authentication check should be extracted into reusable middleware.
+
+### My takeaway
+
+The comparison reinforced that generating authentication code is not enough. The important part is specifying and reviewing the security boundaries, status codes, token handling, and middleware behavior. Small assumptions around the `Bearer` prefix or token verification can turn an apparently working authentication flow into an insecure one.
