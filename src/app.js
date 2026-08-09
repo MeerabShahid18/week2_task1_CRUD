@@ -20,13 +20,16 @@ const openApiSpec = require('./docs/openapi')
 const { notFoundHandler, errorHandler } = require('./middleware/errorMiddleware')
 
 const authRoutes = require("./routes/authRoutes");
-
+const publicRoutes = require("./routes/publicRoutes");
+const protectedRoutes = require("./routes/protectedRoutes");
 const app = express()
 
 // --- Global middleware -----------------------------------------------------
 // Parse incoming JSON request bodies into req.body.
 app.use(express.json())
 app.use("/auth", authRoutes);
+app.use("/public", publicRoutes);
+app.use("/protected", protectedRoutes);
 // --- Meta endpoints --------------------------------------------------------
 // Root: describes the API.
 app.get('/', (req, res) => {
